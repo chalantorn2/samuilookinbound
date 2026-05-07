@@ -1,0 +1,7 @@
+# Block direct access to internal includes
+<FilesMatch "^(db\.php|database\.sql)$">
+    Require all denied
+</FilesMatch>
+
+# Disable directory listing
+Options -Indexes
