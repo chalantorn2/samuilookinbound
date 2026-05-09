@@ -59,7 +59,7 @@ httpdocs/
     .htaccess
 ```
 
-### 3. รัน setup ครั้งเดียวเพื่อสร้างตาราง + admin user
+### 3. รัน setup ครั้งเดียวเพื่อสร้างตาราง + admin user + master data
 
 เปิด browser ไปที่:
 
@@ -67,16 +67,38 @@ httpdocs/
 https://inbound.samuilookbiz.com/api/setup.php?key=samui-setup-2025
 ```
 
-จะได้ผลลัพธ์:
+จะได้ผลลัพธ์ประมาณนี้ (รันซ้ำได้ — ใช้ `IF NOT EXISTS` / `INSERT IGNORE`):
 
 ```
-[OK] users table ready
+[OK] schema applied (XX statements)
 [OK] admin user created
        username: admin
        password: admin123
+[OK] suppliers: inserted 6, skipped 0
+[OK] places: inserted 11, skipped 0
+[OK] flights: inserted 2, skipped 0
+[OK] tours: inserted 3, skipped 0
+[OK] customers: inserted 1, skipped 0
 ```
 
 **สำคัญมาก** — หลังจากเห็นข้อความเสร็จสิ้นแล้ว ให้**ลบไฟล์ `api/setup.php` ออกจากเซิร์ฟเวอร์ทันที**
+
+#### ตารางที่ถูกสร้าง
+
+**Auth**
+- `users`
+
+**Master data (เมนู Information ในเฟสถัดไป)**
+- `customers`, `places` (รวมโรงแรม / สนามบิน / ท่าเรือ / สถานที่), `flights`, `suppliers`, `tours`
+
+**Transaction (เมนู Booking)**
+- `bookings` — head ของแต่ละการจอง (เก็บ total_net / total_sale รวม)
+- `booking_travelers` — ผู้เดินทาง (Adult / Child / Infant)
+- `booking_flights` — flight arrival / departure
+- `booking_hotels` — รายการที่พัก
+- `booking_transfers` — รถรับส่ง (Meeting / Transfer / Sending)
+- `booking_boats` — ตั๋วเรือ
+- `booking_tours` — ทัวร์เสริม
 
 ### 4. Login
 
@@ -105,13 +127,14 @@ const DB_PASS = 'S4ZJ@_tihyenzn89';
 
 | เมนู              | สถานะ        |
 | ----------------- | ------------ |
-| HOME              | ใช้งานได้    |
-| BOOKING           | กำลังพัฒนา   |
-| BOOKING LIST      | กำลังพัฒนา   |
+| HOME              | ใช้งานได้ (Calendar view + event popup) |
+| BOOKING           | ใช้งานได้ (form หน้า 3 — บันทึก booking + sub-tables) |
+| BOOKING LIST      | กำลังพัฒนา (Phase 4) |
 | VOUCHER LIST      | กำลังพัฒนา   |
 | INVOICE LIST      | กำลังพัฒนา   |
 | PAYMENT LIST      | กำลังพัฒนา   |
 | REPORT            | กำลังพัฒนา   |
+| INFORMATION       | ใช้งานได้ (master data: customers / places / flights / suppliers / tours) |
 | USERS MANAGEMENT  | ใช้งานได้ (admin) |
 
 ## Dev (เครื่อง local)

@@ -15,7 +15,9 @@
   --color-brand-950: #172554;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   font-family: "Prompt", ui-sans-serif, system-ui, sans-serif;
 }
@@ -45,4 +47,10 @@ input[type="file"]:not(:disabled) {
 button:disabled,
 [role="button"][aria-disabled="true"] {
   cursor: not-allowed;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #cbd5e1;
+  font-weight: 300;
 }

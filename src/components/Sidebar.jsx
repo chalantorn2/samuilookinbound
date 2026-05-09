@@ -10,7 +10,8 @@ const MENU = [
   { to: "/invoice-list", label: "Invoice List", icon: IconInvoice },
   { to: "/payment-list", label: "Payment List", icon: IconPayment },
   { to: "/report", label: "Report", icon: IconReport },
-  { to: "/users-management", label: "Users Management", icon: IconUsers },
+  { to: "/information", label: "Information", icon: IconInformation },
+  { to: "/users-management", label: "Manage Users", icon: IconUsers },
 ];
 
 const STORAGE_KEY = "sidebar:collapsed";
@@ -19,9 +20,10 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY) === "1";
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored === null ? true : stored === "1";
     } catch {
-      return false;
+      return true;
     }
   });
 
@@ -48,9 +50,9 @@ export default function Sidebar() {
   return (
     <aside
       className={`${
-        collapsed ? "w-[72px]" : "w-64"
-      } shrink-0 h-screen sticky top-0 flex flex-col text-white
-      bg-brand-800 border-r border-brand-900
+        collapsed ? "w-[72px]" : "w-52"
+      } shrink-0 h-screen sticky top-0 z-40 flex flex-col text-white
+      bg-brand-700 border-r border-brand-900
       transition-[width] duration-200 ease-out`}
     >
       {/* Brand */}
@@ -64,10 +66,10 @@ export default function Sidebar() {
         </div>
         {!collapsed && (
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium leading-tight truncate">
+            <div className="text-xs font-medium leading-tight truncate">
               SamuiLook Inbound
             </div>
-            <div className="text-xs text-brand-200 truncate">
+            <div className="text-[10px] text-brand-200 truncate">
               Booking Workspace
             </div>
           </div>
@@ -84,20 +86,17 @@ export default function Sidebar() {
       )}
 
       {/* Menu */}
-      <nav
-        className={`flex-1 overflow-y-auto py-2 ${
-          collapsed ? "px-2" : "px-3"
-        } space-y-0.5`}
-      >
+      <nav className={`flex-1 py-2 ${collapsed ? "px-2" : "px-3"} space-y-0.5`}>
         {MENU.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             end={to === "/"}
-            title={collapsed ? label : undefined}
             className={({ isActive }) =>
               `group relative flex items-center ${
-                collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 h-10"
+                collapsed
+                  ? "justify-center h-10 w-10 mx-auto"
+                  : "gap-3 px-3 h-10"
               } rounded-lg text-sm transition-colors
               ${
                 isActive
@@ -113,10 +112,20 @@ export default function Sidebar() {
                 )}
                 <Icon
                   className={`w-[18px] h-[18px] shrink-0 ${
-                    isActive ? "text-white" : "text-brand-200 group-hover:text-white"
+                    isActive
+                      ? "text-white"
+                      : "text-brand-200 group-hover:text-white"
                   }`}
                 />
                 {!collapsed && <span className="truncate">{label}</span>}
+                {collapsed && (
+                  <span
+                    role="tooltip"
+                    className="pointer-events-none absolute left-full ml-3 z-50 px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-medium whitespace-nowrap opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150 shadow-lg ring-1 ring-black/10"
+                  >
+                    {label}
+                  </span>
+                )}
               </>
             )}
           </NavLink>
@@ -300,6 +309,23 @@ function IconReport(p) {
     >
       <path d="M3 3v18h18" />
       <path d="M7 15l4-4 3 3 5-6" />
+    </svg>
+  );
+}
+function IconInformation(p) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...p}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v.01" />
+      <path d="M11 12h1v5h1" />
     </svg>
   );
 }
