@@ -7,9 +7,24 @@ const MONTH_NAMES = [
 ]
 
 const TYPE_STYLES = {
-  transfer: { bar: 'bg-blue-100 text-blue-800 border-blue-200' },
-  hotel:    { bar: 'bg-amber-100 text-amber-800 border-amber-200' },
-  tour:     { bar: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  hotel:    { bar: 'bg-amber-100 text-amber-800 border-amber-200',     label: 'Hotel' },
+  transfer: { bar: 'bg-blue-100 text-blue-800 border-blue-200',         label: 'Transfer' },
+  boat:     { bar: 'bg-cyan-100 text-cyan-800 border-cyan-200',         label: 'Boat' },
+  tour:     { bar: 'bg-emerald-100 text-emerald-800 border-emerald-200', label: 'Tour' },
+}
+
+const SERVICE_ORDER = ['hotel', 'transfer', 'boat', 'tour']
+
+/** จัดกลุ่ม events ของวัน → [{ key, count }] เรียง Hotel → Transfer → Boat → Tour */
+function groupServicesOfDay(dayEvents) {
+  const counts = {}
+  for (const ev of dayEvents) {
+    const key = ev.subtype === 'boat' ? 'boat' : ev.type
+    counts[key] = (counts[key] || 0) + 1
+  }
+  return SERVICE_ORDER
+    .filter((k) => counts[k])
+    .map((k) => ({ key: k, count: counts[k] }))
 }
 
 /**
@@ -19,18 +34,22 @@ const TYPE_STYLES = {
  *   month         Date    — เดือนปัจจุบันที่แสดง (วันที่ใดก็ได้ในเดือน)
  *   events        Array<{ date, type, title, ... }>  — พร้อม flatten
  *   onMonthChange (Date) → void  — กดปุ่มเดือนก่อน/ถัดไป
- *   onHoverEvent  (event|null) → void
- *   onClickEvent  (event) → void
  *   onSelectDay   (isoDate, eventsOfDay) → void — คลิกที่ช่องวัน
  *   selectedDate  string|null — ISO date ของวันที่ถูกเลือก (เพื่อ highlight)
  */
-export default function Calendar({ month, events, onMonthChange, onHoverEvent, onClickEvent, onSelectDay, selectedDate }) {
+export default function Calendar({ month, events, onMonthChange, onSelectDay, selectedDate }) {
   const grid = useMemo(() => buildGrid(month), [month])
   const eventsByDate = useMemo(() => groupByDate(events), [events])
 
   const goPrev  = () => onMonthChange(addMonth(month, -1))
   const goNext  = () => onMonthChange(addMonth(month, 1))
-  const goToday = () => onMonthChange(new Date())
+  const goToday = () => {
+    const today = new Date()
+    onMonthChange(today)
+    const iso = isoDate(today)
+    const dayEvents = eventsByDate.get(iso) || []
+    onSelectDay?.(iso, dayEvents)
+  }
 
   return (
     <div className="bg-white border border-slate-200 rounded flex flex-col h-full min-h-0">
@@ -94,28 +113,20 @@ export default function Calendar({ month, events, onMonthChange, onHoverEvent, o
               </div>
 
               <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
-                {dayEvents.slice(0, 4).map((ev, i) => {
-                  const style = TYPE_STYLES[ev.type] || TYPE_STYLES.tour
+                {groupServicesOfDay(dayEvents).map((g) => {
+                  const style = TYPE_STYLES[g.key]
                   return (
-                    <button
-                      key={i}
-                      type="button"
-                      onMouseEnter={() => onHoverEvent?.(ev)}
-                      onMouseLeave={() => onHoverEvent?.(null)}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onClickEvent?.(ev)
-                      }}
-                      className={`text-[11px] leading-tight truncate text-left px-1.5 py-0.5 rounded border ${style.bar} hover:brightness-95 transition`}
-                      title={ev.title}
+                    <div
+                      key={g.key}
+                      className={`text-[11px] leading-tight px-1.5 py-0.5 rounded border ${style.bar} pointer-events-none flex items-center justify-between gap-1`}
                     >
-                      {ev.title}
-                    </button>
+                      <span className="truncate">{style.label}</span>
+                      {g.count > 1 && (
+                        <span className="font-medium shrink-0">{g.count}</span>
+                      )}
+                    </div>
                   )
                 })}
-                {dayEvents.length > 4 && (
-                  <div className="text-[10px] text-slate-400 px-1.5">+{dayEvents.length - 4} more</div>
-                )}
               </div>
             </div>
           )

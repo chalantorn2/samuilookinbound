@@ -42,7 +42,7 @@ function FlightRow({ label, timeKey, row, onChange }) {
   return (
     <div>
       <div className="text-xs font-medium text-slate-600 mb-1 uppercase tracking-wide">{label}</div>
-      <div className="grid grid-cols-[1.1fr_1fr_1.4fr_0.9fr] gap-2 items-center">
+      <div className="grid grid-cols-[1.3fr_1fr_1.2fr_0.9fr] gap-2 items-center">
         <DateInput
           value={row.flight_date}
           onChange={(v) => onChange({ flight_date: v })}

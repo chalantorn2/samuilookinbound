@@ -9,6 +9,7 @@ import UnderDevelopment from './components/UnderDevelopment.jsx'
 import Login from './pages/Login.jsx'
 import Home from './pages/Home.jsx'
 import Booking from './pages/Booking.jsx'
+import BookingList from './pages/BookingList.jsx'
 import Information from './pages/Information.jsx'
 import UsersManagement from './pages/UsersManagement.jsx'
 
@@ -22,7 +23,7 @@ function App() {
         <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Home />} />
           <Route path="booking"          element={<Booking />} />
-          <Route path="booking-list"     element={<UnderDevelopment title="BOOKING LIST" />} />
+          <Route path="booking-list"     element={<BookingList />} />
           <Route path="information"      element={<Information />} />
           <Route path="voucher-list"     element={<UnderDevelopment title="VOUCHER LIST" />} />
           <Route path="invoice-list"     element={<UnderDevelopment title="INVOICE LIST" />} />

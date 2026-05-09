@@ -29,6 +29,7 @@ export default function Autocomplete({
   required = false,
   className = '',
   inputClassName = '',
+  minChars = 2,
 }) {
   const [items, setItems] = useState([])
   const [open, setOpen] = useState(false)
@@ -78,12 +79,13 @@ export default function Autocomplete({
   }, [open])
 
   const q = (value || '').trim().toLowerCase()
-  const filtered = q
+  const meetsMin = q.length >= minChars
+  const filtered = meetsMin
     ? items.filter(it =>
         String(it[displayKey] ?? '').toLowerCase().includes(q) ||
         (secondaryKey && String(it[secondaryKey] ?? '').toLowerCase().includes(q))
       )
-    : items
+    : []
   const visible = filtered.slice(0, 30)
 
   const choose = (item) => {

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 require __DIR__ . '/db.php';
 
@@ -34,20 +35,48 @@ try {
         }
 
         $search = trim((string)($_GET['search'] ?? ''));
+        $field  = trim((string)($_GET['searchField'] ?? ''));
         if ($search !== '') {
-            $where .= ' AND (booking_code LIKE :q OR customer_name LIKE :q OR reference LIKE :q)';
-            $params[':q'] = '%' . $search . '%';
+            $like = '%' . $search . '%';
+            switch ($field) {
+                case 'id':
+                    $where .= ' AND booking_code LIKE :q';
+                    $params[':q'] = $like;
+                    break;
+                case 'customer':
+                    $where .= ' AND customer_name LIKE :q';
+                    $params[':q'] = $like;
+                    break;
+                case 'agent':
+                    // ยังไม่มี agent column — match กับ recorded_by_name ไว้ก่อน
+                    $where .= ' AND recorded_by_name LIKE :q';
+                    $params[':q'] = $like;
+                    break;
+                case 'date_in':
+                    $where .= ' AND CAST(trip_start AS CHAR) LIKE :q';
+                    $params[':q'] = $like;
+                    break;
+                default:
+                    $where .= ' AND (booking_code LIKE :q OR customer_name LIKE :q OR reference LIKE :q)';
+                    $params[':q'] = $like;
+            }
         }
 
-        $sql = "SELECT id, booking_code, reference, customer_id, customer_code, customer_name,
-                       recorded_by_id, recorded_by_name, trip_start, trip_end, status, remark,
-                       total_net, total_sale,
-                       total_hotel_net, total_hotel_sale,
-                       total_transfer_net, total_transfer_sale,
-                       total_boat_net, total_boat_sale,
-                       total_tour_net, total_tour_sale,
-                       created_at, updated_at
-                FROM bookings WHERE $where ORDER BY trip_start DESC, id DESC";
+        $sql = "SELECT b.id, b.booking_code, b.reference, b.customer_id, b.customer_code, b.customer_name,
+                       b.recorded_by_id, b.recorded_by_name, b.trip_start, b.trip_end, b.status, b.remark,
+                       b.total_net, b.total_sale,
+                       b.total_hotel_net, b.total_hotel_sale,
+                       b.total_transfer_net, b.total_transfer_sale,
+                       b.total_boat_net, b.total_boat_sale,
+                       b.total_tour_net, b.total_tour_sale,
+                       b.created_at, b.updated_at, b.voucher_sent_at,
+                       c.email AS customer_email,
+                       (SELECT COUNT(*) FROM booking_travelers t WHERE t.booking_id = b.id AND t.traveler_type = 'adult')  AS pax_adult,
+                       (SELECT COUNT(*) FROM booking_travelers t WHERE t.booking_id = b.id AND t.traveler_type = 'child')  AS pax_child,
+                       (SELECT COUNT(*) FROM booking_travelers t WHERE t.booking_id = b.id AND t.traveler_type = 'infant') AS pax_infant
+                FROM bookings b
+                LEFT JOIN customers c ON c.id = b.customer_id
+                WHERE $where ORDER BY b.trip_start DESC, b.id DESC";
         $stmt = db()->prepare($sql);
         $stmt->execute($params);
         $rows = array_map('cast_booking_row', $stmt->fetchAll());
@@ -62,6 +91,15 @@ try {
     }
 
     if ($method === 'POST') {
+        // mark voucher as sent: POST /bookings.php?id=X&action=mark_voucher_sent
+        if ($id > 0 && ($_GET['action'] ?? '') === 'mark_voucher_sent') {
+            $stmt = db()->prepare('UPDATE bookings SET voucher_sent_at = NOW() WHERE id = :id');
+            $stmt->execute([':id' => $id]);
+            $stmt = db()->prepare('SELECT voucher_sent_at FROM bookings WHERE id = :id');
+            $stmt->execute([':id' => $id]);
+            json_response(['success' => true, 'voucher_sent_at' => $stmt->fetchColumn()]);
+        }
+
         $body = read_json_body();
         $newId = save_booking($body, null, $me);
         $b = fetch_booking_full($newId);
@@ -99,7 +137,8 @@ try {
  * ดึง events รายวันสำหรับ calendar — flatten จาก booking_hotels (multi-day),
  * booking_transfers, booking_boats, booking_tours
  */
-function fetch_events(string $from, string $to): array {
+function fetch_events(string $from, string $to): array
+{
     $events = [];
 
     // ----- HOTELS: ทับช่วง [from, to] (multi-day → ขยายเป็นรายวัน) ---------
@@ -123,7 +162,7 @@ function fetch_events(string $from, string $to): array {
                 'type'         => 'hotel',
                 'booking_id'   => (int)$h['booking_id'],
                 'booking_code' => $h['booking_code'],
-                'customer_name'=> $h['customer_name'],
+                'customer_name' => $h['customer_name'],
                 'title'        => $h['place_name'] ?: 'HOTEL',
                 'detail'       => [
                     'place_name' => $h['place_name'],
@@ -132,7 +171,7 @@ function fetch_events(string $from, string $to): array {
                     'room_count' => (int)$h['room_count'],
                     'check_in'   => $h['check_in'],
                     'check_out'  => $h['check_out'],
-                    'due_payment'=> $h['due_payment'],
+                    'due_payment' => $h['due_payment'],
                     'status'     => $h['status'],
                 ],
             ];
@@ -158,7 +197,7 @@ function fetch_events(string $from, string $to): array {
             'type'         => 'transfer',
             'booking_id'   => (int)$t['booking_id'],
             'booking_code' => $t['booking_code'],
-            'customer_name'=> $t['customer_name'],
+            'customer_name' => $t['customer_name'],
             'title'        => strtoupper((string)$t['service_type']),
             'detail'       => [
                 'service_type' => $t['service_type'],
@@ -166,7 +205,7 @@ function fetch_events(string $from, string $to): array {
                 'to'           => $t['to_text'],
                 'pickup_time'  => $t['pickup_time'],
                 'supplier'     => $t['supplier_code'],
-                'vehicle_count'=> (int)$t['vehicle_count'],
+                'vehicle_count' => (int)$t['vehicle_count'],
                 'flight_no'    => $t['flight_no'],
                 'flight_time'  => $t['flight_time'],
             ],
@@ -190,7 +229,7 @@ function fetch_events(string $from, string $to): array {
             'subtype'      => 'boat',
             'booking_id'   => (int)$r['booking_id'],
             'booking_code' => $r['booking_code'],
-            'customer_name'=> $r['customer_name'],
+            'customer_name' => $r['customer_name'],
             'title'        => strtoupper((string)$r['service_type']),
             'detail'       => [
                 'service_type' => $r['service_type'],
@@ -219,11 +258,11 @@ function fetch_events(string $from, string $to): array {
             'type'         => 'tour',
             'booking_id'   => (int)$r['booking_id'],
             'booking_code' => $r['booking_code'],
-            'customer_name'=> $r['customer_name'],
+            'customer_name' => $r['customer_name'],
             'title'        => strtoupper((string)$r['tour_name']),
             'detail'       => [
                 'tour_name'      => $r['tour_name'],
-                'pickup_location'=> $r['pickup_location'],
+                'pickup_location' => $r['pickup_location'],
                 'pickup_time'    => $r['pickup_time'],
                 'supplier'       => $r['supplier_code'],
                 'pax_text'       => $r['pax_text'],
@@ -232,30 +271,57 @@ function fetch_events(string $from, string $to): array {
         ];
     }
 
-    // sort by date asc, then by type (hotel first, then transfer, then tour)
-    $order = ['hotel' => 0, 'transfer' => 1, 'tour' => 2];
+    // sort: date ASC → service (Hotel→Transfer→Boat→Tour) → time ASC
+    $order = ['hotel' => 0, 'transfer' => 1, 'boat' => 2, 'tour' => 3];
     usort($events, function ($a, $b) use ($order) {
         $cmp = strcmp($a['date'], $b['date']);
         if ($cmp !== 0) return $cmp;
-        return ($order[$a['type']] ?? 9) <=> ($order[$b['type']] ?? 9);
+        $ka = ($a['subtype'] ?? '') === 'boat' ? 'boat' : $a['type'];
+        $kb = ($b['subtype'] ?? '') === 'boat' ? 'boat' : $b['type'];
+        $cmp = ($order[$ka] ?? 9) <=> ($order[$kb] ?? 9);
+        if ($cmp !== 0) return $cmp;
+        return strcmp(event_sort_time($a), event_sort_time($b));
     });
 
     return $events;
 }
 
-function cast_booking_row(array $r): array {
-    foreach (['id','customer_id','recorded_by_id'] as $k) {
+/** time string สำหรับ secondary sort ใน service เดียวกัน */
+function event_sort_time(array $ev): string
+{
+    $d = $ev['detail'] ?? [];
+    if ($ev['type'] === 'hotel')    return (string)($d['check_in']    ?? '');
+    if ($ev['type'] === 'transfer') return (string)($d['pickup_time'] ?? '');
+    if (($ev['subtype'] ?? '') === 'boat') return (string)($d['boat_time'] ?? '');
+    return (string)($d['pickup_time'] ?? '');
+}
+
+function cast_booking_row(array $r): array
+{
+    foreach (['id', 'customer_id', 'recorded_by_id', 'pax_adult', 'pax_child', 'pax_infant'] as $k) {
         if (isset($r[$k])) $r[$k] = $r[$k] === null ? null : (int)$r[$k];
     }
-    foreach (['total_net','total_sale','total_hotel_net','total_hotel_sale',
-              'total_transfer_net','total_transfer_sale','total_boat_net','total_boat_sale',
-              'total_tour_net','total_tour_sale'] as $k) {
+    foreach (
+        [
+            'total_net',
+            'total_sale',
+            'total_hotel_net',
+            'total_hotel_sale',
+            'total_transfer_net',
+            'total_transfer_sale',
+            'total_boat_net',
+            'total_boat_sale',
+            'total_tour_net',
+            'total_tour_sale'
+        ] as $k
+    ) {
         if (isset($r[$k])) $r[$k] = (float)$r[$k];
     }
     return $r;
 }
 
-function fetch_booking_full(int $id): ?array {
+function fetch_booking_full(int $id): ?array
+{
     $stmt = db()->prepare('SELECT * FROM bookings WHERE id = :id');
     $stmt->execute([':id' => $id]);
     $b = $stmt->fetch();
@@ -271,7 +337,8 @@ function fetch_booking_full(int $id): ?array {
     return $b;
 }
 
-function fetch_children(string $table, int $bookingId): array {
+function fetch_children(string $table, int $bookingId): array
+{
     // booking_flights ไม่มี sort_order; sort by direction
     $orderBy = $table === 'booking_flights' ? 'direction ASC, id ASC' : 'sort_order ASC, id ASC';
     $stmt = db()->prepare("SELECT * FROM {$table} WHERE booking_id = :b ORDER BY {$orderBy}");
@@ -281,8 +348,17 @@ function fetch_children(string $table, int $bookingId): array {
         if (isset($r['id']))         $r['id'] = (int)$r['id'];
         if (isset($r['booking_id'])) $r['booking_id'] = (int)$r['booking_id'];
         if (isset($r['sort_order'])) $r['sort_order'] = (int)$r['sort_order'];
-        foreach (['net_amount','sale_amount','net_per_car','sale_adult','sale_child',
-                  'net_adult','net_child'] as $k) {
+        foreach (
+            [
+                'net_amount',
+                'sale_amount',
+                'net_per_car',
+                'sale_adult',
+                'sale_child',
+                'net_adult',
+                'net_child'
+            ] as $k
+        ) {
             if (isset($r[$k])) $r[$k] = (float)$r[$k];
         }
         return $r;
@@ -293,7 +369,8 @@ function fetch_children(string $table, int $bookingId): array {
  * Save (insert/update) booking + ทุก sub-table ใน transaction เดียว
  * คืน booking id
  */
-function save_booking(array $b, ?int $existingId, array $me): int {
+function save_booking(array $b, ?int $existingId, array $me): int
+{
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -303,7 +380,7 @@ function save_booking(array $b, ?int $existingId, array $me): int {
         $customerName  = trim((string)($b['customer_name'] ?? ''));
         $remark        = trim((string)($b['remark'] ?? ''));
         $status        = (string)($b['status'] ?? 'pending');
-        if (!in_array($status, ['pending','confirmed','cancelled'], true)) $status = 'pending';
+        if (!in_array($status, ['pending', 'confirmed', 'cancelled'], true)) $status = 'pending';
 
         // sub-arrays (ทำให้เป็น array เสมอ)
         $travelers = array_values(is_array($b['travelers'] ?? null) ? $b['travelers'] : []);
@@ -349,19 +426,24 @@ function save_booking(array $b, ?int $existingId, array $me): int {
                 ':code' => $code,
                 ':ref'  => $reference !== '' ? $reference : null,
                 ':cid'  => $customerId,
-                ':ccode'=> $customerCode !== '' ? $customerCode : null,
-                ':cname'=> $customerName !== '' ? $customerName : null,
+                ':ccode' => $customerCode !== '' ? $customerCode : null,
+                ':cname' => $customerName !== '' ? $customerName : null,
                 ':uid'  => (int)$me['id'],
-                ':uname'=> (string)($me['full_name'] ?? $me['username'] ?? ''),
+                ':uname' => (string)($me['full_name'] ?? $me['username'] ?? ''),
                 ':ts'   => $tripStart,
                 ':te'   => $tripEnd,
                 ':st'   => $status,
                 ':rm'   => $remark !== '' ? $remark : null,
-                ':thn'  => $totals['hotel_net'],   ':ths' => $totals['hotel_sale'],
-                ':ttn'  => $totals['transfer_net'],':tts' => $totals['transfer_sale'],
-                ':tbn'  => $totals['boat_net'],    ':tbs' => $totals['boat_sale'],
-                ':ton'  => $totals['tour_net'],    ':tos' => $totals['tour_sale'],
-                ':tn'   => $totals['net'],         ':tsale'=> $totals['sale'],
+                ':thn'  => $totals['hotel_net'],
+                ':ths' => $totals['hotel_sale'],
+                ':ttn'  => $totals['transfer_net'],
+                ':tts' => $totals['transfer_sale'],
+                ':tbn'  => $totals['boat_net'],
+                ':tbs' => $totals['boat_sale'],
+                ':ton'  => $totals['tour_net'],
+                ':tos' => $totals['tour_sale'],
+                ':tn'   => $totals['net'],
+                ':tsale' => $totals['sale'],
             ]);
             $bookingId = (int)$pdo->lastInsertId();
         } else {
@@ -381,31 +463,46 @@ function save_booking(array $b, ?int $existingId, array $me): int {
             $stmt->execute([
                 ':ref' => $reference !== '' ? $reference : null,
                 ':cid' => $customerId,
-                ':ccode'=> $customerCode !== '' ? $customerCode : null,
-                ':cname'=> $customerName !== '' ? $customerName : null,
-                ':ts'  => $tripStart, ':te' => $tripEnd, ':st' => $status,
+                ':ccode' => $customerCode !== '' ? $customerCode : null,
+                ':cname' => $customerName !== '' ? $customerName : null,
+                ':ts'  => $tripStart,
+                ':te' => $tripEnd,
+                ':st' => $status,
                 ':rm'  => $remark !== '' ? $remark : null,
-                ':thn' => $totals['hotel_net'],    ':ths' => $totals['hotel_sale'],
-                ':ttn' => $totals['transfer_net'], ':tts' => $totals['transfer_sale'],
-                ':tbn' => $totals['boat_net'],     ':tbs' => $totals['boat_sale'],
-                ':ton' => $totals['tour_net'],     ':tos' => $totals['tour_sale'],
-                ':tn'  => $totals['net'],          ':tsale'=> $totals['sale'],
+                ':thn' => $totals['hotel_net'],
+                ':ths' => $totals['hotel_sale'],
+                ':ttn' => $totals['transfer_net'],
+                ':tts' => $totals['transfer_sale'],
+                ':tbn' => $totals['boat_net'],
+                ':tbs' => $totals['boat_sale'],
+                ':ton' => $totals['tour_net'],
+                ':tos' => $totals['tour_sale'],
+                ':tn'  => $totals['net'],
+                ':tsale' => $totals['sale'],
                 ':id'  => $bookingId,
             ]);
             // ลบ sub ทั้งหมด (CASCADE จะทำตอนเรา DELETE FROM ... WHERE booking_id)
-            foreach (['booking_travelers','booking_flights','booking_hotels',
-                      'booking_transfers','booking_boats','booking_tours'] as $t) {
+            foreach (
+                [
+                    'booking_travelers',
+                    'booking_flights',
+                    'booking_hotels',
+                    'booking_transfers',
+                    'booking_boats',
+                    'booking_tours'
+                ] as $t
+            ) {
                 $pdo->prepare("DELETE FROM {$t} WHERE booking_id = :b")->execute([':b' => $bookingId]);
             }
         }
 
         // ----- INSERT sub-tables ใหม่ทั้งหมด ---------------------------------
         insert_travelers($pdo, $bookingId, $travelers);
-        insert_flights  ($pdo, $bookingId, $flights);
-        insert_hotels   ($pdo, $bookingId, $hotels);
+        insert_flights($pdo, $bookingId, $flights);
+        insert_hotels($pdo, $bookingId, $hotels);
         insert_transfers($pdo, $bookingId, $transfers);
-        insert_boats    ($pdo, $bookingId, $boats);
-        insert_tours    ($pdo, $bookingId, $tours);
+        insert_boats($pdo, $bookingId, $boats);
+        insert_tours($pdo, $bookingId, $tours);
 
         $pdo->commit();
         return $bookingId;
@@ -415,25 +512,29 @@ function save_booking(array $b, ?int $existingId, array $me): int {
     }
 }
 
-function next_booking_code(PDO $pdo): string {
-    $year = (int)date('Y');
-    $prefix = sprintf('BK-%04d-', $year);
+function next_booking_code(PDO $pdo): string
+{
+    // Format: BK{YY}{MM}{NNN} — running resets every year, e.g. BK2605001
+    $yy = date('y');
+    $mm = date('m');
+    $yearPrefix = 'BK' . $yy;
     $stmt = $pdo->prepare(
         "SELECT booking_code FROM bookings WHERE booking_code LIKE :p
          ORDER BY booking_code DESC LIMIT 1"
     );
-    $stmt->execute([':p' => $prefix . '%']);
+    $stmt->execute([':p' => $yearPrefix . '%']);
     $last = $stmt->fetchColumn();
     $next = 1;
     if ($last) {
-        $tail = (int)substr((string)$last, strlen($prefix));
+        $tail = (int)substr((string)$last, -3);
         $next = $tail + 1;
     }
-    return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
+    return $yearPrefix . $mm . str_pad((string)$next, 3, '0', STR_PAD_LEFT);
 }
 
 /** หา trip_start/trip_end จากทุก date ใน sub-tables — คืน [start, end] หรือ [null, null] */
-function compute_trip_range(array $flights, array $hotels, array $transfers, array $boats, array $tours): array {
+function compute_trip_range(array $flights, array $hotels, array $transfers, array $boats, array $tours): array
+{
     $dates = [];
     foreach ($flights as $r) {
         if (!empty($r['flight_date'])) $dates[] = $r['flight_date'];
@@ -452,39 +553,49 @@ function compute_trip_range(array $flights, array $hotels, array $transfers, arr
     return [$dates[0], end($dates)];
 }
 
-function compute_totals(array $hotels, array $transfers, array $boats, array $tours): array {
-    $hn = 0.0; $hs = 0.0;
+function compute_totals(array $hotels, array $transfers, array $boats, array $tours): array
+{
+    $hn = 0.0;
+    $hs = 0.0;
     foreach ($hotels as $r) {
         $hn += (float)($r['net_amount']  ?? 0);
         $hs += (float)($r['sale_amount'] ?? 0);
     }
-    $tn = 0.0; $ts = 0.0;
+    $tn = 0.0;
+    $ts = 0.0;
     foreach ($transfers as $r) {
         $cars = (int)($r['vehicle_count'] ?? 1);
         $tn  += (float)($r['net_per_car'] ?? 0) * max(1, $cars);
         $ts  += (float)($r['sale_adult']  ?? 0) + (float)($r['sale_child'] ?? 0);
     }
-    $bn = 0.0; $bs = 0.0;
+    $bn = 0.0;
+    $bs = 0.0;
     foreach ($boats as $r) {
         $bn += (float)($r['net_adult']  ?? 0) + (float)($r['net_child']  ?? 0);
         $bs += (float)($r['sale_adult'] ?? 0) + (float)($r['sale_child'] ?? 0);
     }
-    $on = 0.0; $os = 0.0;
+    $on = 0.0;
+    $os = 0.0;
     foreach ($tours as $r) {
         $on += (float)($r['net_adult']  ?? 0) + (float)($r['net_child']  ?? 0);
         $os += (float)($r['sale_adult'] ?? 0) + (float)($r['sale_child'] ?? 0);
     }
     return [
-        'hotel_net' => $hn, 'hotel_sale' => $hs,
-        'transfer_net' => $tn, 'transfer_sale' => $ts,
-        'boat_net' => $bn, 'boat_sale' => $bs,
-        'tour_net' => $on, 'tour_sale' => $os,
+        'hotel_net' => $hn,
+        'hotel_sale' => $hs,
+        'transfer_net' => $tn,
+        'transfer_sale' => $ts,
+        'boat_net' => $bn,
+        'boat_sale' => $bs,
+        'tour_net' => $on,
+        'tour_sale' => $os,
         'net'  => $hn + $tn + $bn + $on,
         'sale' => $hs + $ts + $bs + $os,
     ];
 }
 
-function insert_travelers(PDO $pdo, int $bid, array $rows): void {
+function insert_travelers(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_travelers
               (booking_id, sort_order, title, name, age, traveler_type,
@@ -494,26 +605,30 @@ function insert_travelers(PDO $pdo, int $bid, array $rows): void {
     foreach ($rows as $i => $r) {
         $age  = isset($r['age']) && $r['age'] !== '' ? (int)$r['age'] : null;
         $type = (string)($r['traveler_type'] ?? '');
-        if (!in_array($type, ['adult','child','infant'], true)) $type = classify_age($age);
+        if (!in_array($type, ['adult', 'child', 'infant'], true)) $type = classify_age($age);
         $stmt->execute([
-            ':b'  => $bid, ':so' => (int)($r['sort_order'] ?? $i),
+            ':b'  => $bid,
+            ':so' => (int)($r['sort_order'] ?? $i),
             ':t'  => trim((string)($r['title'] ?? '')) ?: null,
             ':n'  => trim((string)($r['name'] ?? '')),
-            ':ag' => $age, ':tt' => $type,
+            ':ag' => $age,
+            ':tt' => $type,
             ':pn' => trim((string)($r['passport_no'] ?? '')) ?: null,
             ':pe' => !empty($r['passport_expiry']) ? $r['passport_expiry'] : null,
         ]);
     }
 }
 
-function classify_age(?int $age): string {
+function classify_age(?int $age): string
+{
     if ($age === null) return 'adult';
     if ($age < 2)  return 'infant';
     if ($age < 12) return 'child';
     return 'adult';
 }
 
-function insert_flights(PDO $pdo, int $bid, array $rows): void {
+function insert_flights(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_flights
               (booking_id, direction, flight_date, flight_id, flight_no, route, time)
@@ -521,9 +636,10 @@ function insert_flights(PDO $pdo, int $bid, array $rows): void {
     $stmt = $pdo->prepare($sql);
     foreach ($rows as $r) {
         $dir = (string)($r['direction'] ?? 'arrival');
-        if (!in_array($dir, ['arrival','departure'], true)) $dir = 'arrival';
+        if (!in_array($dir, ['arrival', 'departure'], true)) $dir = 'arrival';
         $stmt->execute([
-            ':b'   => $bid, ':dir' => $dir,
+            ':b'   => $bid,
+            ':dir' => $dir,
             ':fd'  => !empty($r['flight_date']) ? $r['flight_date'] : null,
             ':fid' => !empty($r['flight_id']) ? (int)$r['flight_id'] : null,
             ':fn'  => trim((string)($r['flight_no'] ?? '')) ?: null,
@@ -533,26 +649,28 @@ function insert_flights(PDO $pdo, int $bid, array $rows): void {
     }
 }
 
-function insert_hotels(PDO $pdo, int $bid, array $rows): void {
+function insert_hotels(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_hotels
               (booking_id, sort_order, place_id, place_name, check_in, check_out, night,
                room_type, bed_type, room_count, breakfast, managed_by,
-               net_amount, sale_amount, due_payment, status)
+               net_amount, sale_amount, due_payment, rsvn_no, status)
             VALUES (:b, :so, :pid, :pn, :ci, :co, :ng, :rt, :bt, :rc, :bf, :mb,
-                    :na, :sa, :dp, :st)";
+                    :na, :sa, :dp, :rn, :st)";
     $stmt = $pdo->prepare($sql);
     foreach ($rows as $i => $r) {
         $bf = (string)($r['breakfast'] ?? 'none');
-        if (!in_array($bf, ['included','not_included','none'], true)) $bf = 'none';
+        if (!in_array($bf, ['included', 'not_included', 'none'], true)) $bf = 'none';
         $mb = (string)($r['managed_by'] ?? 'Samui Look');
-        if (!in_array($mb, ['BY AGENT','Samui Look'], true)) $mb = 'Samui Look';
+        if (!in_array($mb, ['BY AGENT', 'Samui Look'], true)) $mb = 'Samui Look';
         $st = (string)($r['status'] ?? 'pending');
-        if (!in_array($st, ['pending','paid'], true)) $st = 'pending';
+        if (!in_array($st, ['pending', 'paid'], true)) $st = 'pending';
 
         $stmt->execute([
-            ':b'  => $bid, ':so' => (int)($r['sort_order'] ?? $i),
-            ':pid'=> !empty($r['place_id']) ? (int)$r['place_id'] : null,
+            ':b'  => $bid,
+            ':so' => (int)($r['sort_order'] ?? $i),
+            ':pid' => !empty($r['place_id']) ? (int)$r['place_id'] : null,
             ':pn' => trim((string)($r['place_name'] ?? '')) ?: null,
             ':ci' => !empty($r['check_in'])  ? $r['check_in']  : null,
             ':co' => !empty($r['check_out']) ? $r['check_out'] : null,
@@ -560,16 +678,19 @@ function insert_hotels(PDO $pdo, int $bid, array $rows): void {
             ':rt' => trim((string)($r['room_type'] ?? '')) ?: null,
             ':bt' => trim((string)($r['bed_type']  ?? '')) ?: null,
             ':rc' => (int)($r['room_count'] ?? 1),
-            ':bf' => $bf, ':mb' => $mb,
+            ':bf' => $bf,
+            ':mb' => $mb,
             ':na' => (float)($r['net_amount']  ?? 0),
             ':sa' => (float)($r['sale_amount'] ?? 0),
             ':dp' => !empty($r['due_payment']) ? $r['due_payment'] : null,
+            ':rn' => trim((string)($r['rsvn_no'] ?? '')) ?: null,
             ':st' => $st,
         ]);
     }
 }
 
-function insert_transfers(PDO $pdo, int $bid, array $rows): void {
+function insert_transfers(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_transfers
               (booking_id, sort_order, service_date, service_type, vehicle_count,
@@ -581,15 +702,16 @@ function insert_transfers(PDO $pdo, int $bid, array $rows): void {
     $stmt = $pdo->prepare($sql);
     foreach ($rows as $i => $r) {
         $type = (string)($r['service_type'] ?? 'Transfer');
-        if (!in_array($type, ['Meeting','Transfer','Sending'], true)) $type = 'Transfer';
+        if (!in_array($type, ['Meeting', 'Transfer', 'Sending'], true)) $type = 'Transfer';
         $stmt->execute([
-            ':b'   => $bid, ':so' => (int)($r['sort_order'] ?? $i),
+            ':b'   => $bid,
+            ':so' => (int)($r['sort_order'] ?? $i),
             ':sd'  => !empty($r['service_date']) ? $r['service_date'] : null,
             ':st'  => $type,
             ':vc'  => (int)($r['vehicle_count'] ?? 1),
-            ':fpid'=> !empty($r['from_place_id']) ? (int)$r['from_place_id'] : null,
+            ':fpid' => !empty($r['from_place_id']) ? (int)$r['from_place_id'] : null,
             ':ft'  => trim((string)($r['from_text'] ?? '')) ?: null,
-            ':tpid'=> !empty($r['to_place_id']) ? (int)$r['to_place_id'] : null,
+            ':tpid' => !empty($r['to_place_id']) ? (int)$r['to_place_id'] : null,
             ':tt'  => trim((string)($r['to_text'] ?? '')) ?: null,
             ':pt'  => !empty($r['pickup_time']) ? $r['pickup_time'] : null,
             ':sid' => !empty($r['supplier_id']) ? (int)$r['supplier_id'] : null,
@@ -601,7 +723,8 @@ function insert_transfers(PDO $pdo, int $bid, array $rows): void {
     }
 }
 
-function insert_boats(PDO $pdo, int $bid, array $rows): void {
+function insert_boats(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_boats
               (booking_id, sort_order, service_date, service_type, pax_text,
@@ -613,13 +736,14 @@ function insert_boats(PDO $pdo, int $bid, array $rows): void {
     $stmt = $pdo->prepare($sql);
     foreach ($rows as $i => $r) {
         $stmt->execute([
-            ':b'   => $bid, ':so' => (int)($r['sort_order'] ?? $i),
+            ':b'   => $bid,
+            ':so' => (int)($r['sort_order'] ?? $i),
             ':sd'  => !empty($r['service_date']) ? $r['service_date'] : null,
             ':st'  => trim((string)($r['service_type'] ?? 'Boat Ticket')) ?: 'Boat Ticket',
             ':px'  => trim((string)($r['pax_text'] ?? '')) ?: null,
-            ':fpid'=> !empty($r['from_place_id']) ? (int)$r['from_place_id'] : null,
+            ':fpid' => !empty($r['from_place_id']) ? (int)$r['from_place_id'] : null,
             ':ft'  => trim((string)($r['from_text'] ?? '')) ?: null,
-            ':tpid'=> !empty($r['to_place_id']) ? (int)$r['to_place_id'] : null,
+            ':tpid' => !empty($r['to_place_id']) ? (int)$r['to_place_id'] : null,
             ':tt'  => trim((string)($r['to_text'] ?? '')) ?: null,
             ':bt'  => trim((string)($r['boat_time'] ?? '')) ?: null,
             ':sid' => !empty($r['supplier_id']) ? (int)$r['supplier_id'] : null,
@@ -632,7 +756,8 @@ function insert_boats(PDO $pdo, int $bid, array $rows): void {
     }
 }
 
-function insert_tours(PDO $pdo, int $bid, array $rows): void {
+function insert_tours(PDO $pdo, int $bid, array $rows): void
+{
     if (!$rows) return;
     $sql = "INSERT INTO booking_tours
               (booking_id, sort_order, service_date, tour_id, tour_name, pax_text,
@@ -644,9 +769,10 @@ function insert_tours(PDO $pdo, int $bid, array $rows): void {
     $stmt = $pdo->prepare($sql);
     foreach ($rows as $i => $r) {
         $tt = (string)($r['tour_type'] ?? 'option');
-        if (!in_array($tt, ['included','option'], true)) $tt = 'option';
+        if (!in_array($tt, ['included', 'option'], true)) $tt = 'option';
         $stmt->execute([
-            ':b'   => $bid, ':so' => (int)($r['sort_order'] ?? $i),
+            ':b'   => $bid,
+            ':so' => (int)($r['sort_order'] ?? $i),
             ':sd'  => !empty($r['service_date']) ? $r['service_date'] : null,
             ':tid' => !empty($r['tour_id']) ? (int)$r['tour_id'] : null,
             ':tn'  => trim((string)($r['tour_name'] ?? '')) ?: null,

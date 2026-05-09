@@ -1,4 +1,5 @@
 import { emptyTraveler } from './helpers'
+import DateInput from '../DateInput'
 
 const TRAVELER_TYPES = [
   { value: 'adult',  label: 'ADT' },
@@ -60,7 +61,7 @@ export default function TravelersTable({ rows, onChange }) {
                   <input type="text" value={r.passport_no || ''} onChange={(e) => update(i, { passport_no: e.target.value })} className={cellInput} />
                 </td>
                 <td className="px-2 py-1">
-                  <input type="date" value={r.passport_expiry || ''} onChange={(e) => update(i, { passport_expiry: e.target.value })} className={cellInput} />
+                  <DateInput value={r.passport_expiry} onChange={(v) => update(i, { passport_expiry: v })} className={cellInput} />
                 </td>
                 <td className="px-0 py-1 text-center">
                   <button type="button" onClick={() => remove(i)} className={removeBtn} aria-label="ลบ">×</button>

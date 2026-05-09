@@ -185,12 +185,14 @@ export function computeTotals(form) {
 export function stripEmptyRows(form) {
   return {
     ...form,
-    travelers: form.travelers.filter(
-      (r) =>
-        (r.name || "").trim() !== "" ||
-        (r.passport_no || "").trim() !== "" ||
-        (r.title || "").trim() !== "",
-    ),
+    travelers: form.travelers
+      .filter(
+        (r) =>
+          (r.name || "").trim() !== "" ||
+          (r.passport_no || "").trim() !== "" ||
+          (r.title || "").trim() !== "",
+      )
+      .map((r) => ({ ...r, passport_expiry: toISO(r.passport_expiry) })),
     flights: form.flights
       .filter(
         (r) =>
@@ -248,6 +250,124 @@ export function toISO(s) {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+const MONTH_SHORT = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+
+/** "2026-05-09" → "09MAY26" สำหรับ DateInput. คืน "" ถ้า parse ไม่ได้ */
+export function isoToShort(s) {
+  if (!s || typeof s !== "string") return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!m) return "";
+  const day = m[3];
+  const mon = MONTH_SHORT[parseInt(m[2], 10) - 1];
+  const yr = m[1].slice(-2);
+  if (!mon) return "";
+  return `${day}${mon}${yr}`;
+}
+
+/** "HH:MM:SS" → "HH:MM" สำหรับ TimeInput */
+function trimTime(t) {
+  if (!t || typeof t !== "string") return "";
+  return t.slice(0, 5);
+}
+
+/** แปลง booking response จาก backend → form state */
+export function bookingToForm(b) {
+  if (!b) return emptyBookingForm();
+  return {
+    id: b.id,
+    booking_code: b.booking_code || "",
+    reference: b.reference || "",
+    customer_id: b.customer_id || null,
+    customer_code: b.customer_code || "",
+    customer_name: b.customer_name || "",
+    remark: b.remark || "",
+    status: b.status || "pending",
+    travelers: (b.travelers || []).map((r) => ({
+      title: r.title || "",
+      name: r.name || "",
+      age: r.age ?? "",
+      traveler_type: r.traveler_type || "adult",
+      passport_no: r.passport_no || "",
+      passport_expiry: isoToShort(r.passport_expiry),
+      sort_order: r.sort_order ?? 0,
+    })),
+    flights: (b.flights || []).map((r) => ({
+      direction: r.direction || "arrival",
+      flight_date: isoToShort(r.flight_date),
+      flight_id: r.flight_id || null,
+      flight_no: r.flight_no || "",
+      route: r.route || "",
+      time: trimTime(r.time),
+    })),
+    hotels: (b.hotels || []).map((r) => ({
+      place_id: r.place_id || null,
+      place_name: r.place_name || "",
+      check_in: isoToShort(r.check_in),
+      check_out: isoToShort(r.check_out),
+      night: r.night != null ? String(r.night) : "",
+      room_type: r.room_type || "",
+      bed_type: r.bed_type || "",
+      room_count: r.room_count ?? 1,
+      breakfast: r.breakfast || "none",
+      managed_by: r.managed_by || "Samui Look",
+      net_amount: r.net_amount ?? "",
+      sale_amount: r.sale_amount ?? "",
+      due_payment: isoToShort(r.due_payment),
+      status: r.status || "pending",
+      sort_order: r.sort_order ?? 0,
+    })),
+    transfers: (b.transfers || []).map((r) => ({
+      service_date: isoToShort(r.service_date),
+      service_type: r.service_type || "Transfer",
+      vehicle_count: r.vehicle_count ?? 1,
+      from_place_id: r.from_place_id || null,
+      from_text: r.from_text || "",
+      to_place_id: r.to_place_id || null,
+      to_text: r.to_text || "",
+      pickup_time: trimTime(r.pickup_time),
+      supplier_id: r.supplier_id || null,
+      supplier_code: r.supplier_code || "",
+      net_per_car: r.net_per_car ?? "",
+      sale_adult: r.sale_adult ?? "",
+      sale_child: r.sale_child ?? "",
+      sort_order: r.sort_order ?? 0,
+    })),
+    boats: (b.boats || []).map((r) => ({
+      service_date: isoToShort(r.service_date),
+      service_type: r.service_type || "Boat Ticket",
+      pax_text: r.pax_text || "",
+      from_place_id: r.from_place_id || null,
+      from_text: r.from_text || "",
+      to_place_id: r.to_place_id || null,
+      to_text: r.to_text || "",
+      boat_time: trimTime(r.boat_time),
+      supplier_id: r.supplier_id || null,
+      supplier_code: r.supplier_code || "",
+      net_adult: r.net_adult ?? "",
+      net_child: r.net_child ?? "",
+      sale_adult: r.sale_adult ?? "",
+      sale_child: r.sale_child ?? "",
+      sort_order: r.sort_order ?? 0,
+    })),
+    tours: (b.tours || []).map((r) => ({
+      service_date: isoToShort(r.service_date),
+      tour_id: r.tour_id || null,
+      tour_name: r.tour_name || "",
+      pax_text: r.pax_text || "",
+      pickup_location: r.pickup_location || "",
+      pickup_time: trimTime(r.pickup_time),
+      supplier_id: r.supplier_id || null,
+      supplier_code: r.supplier_code || "",
+      tour_type: r.tour_type || "option",
+      net_adult: r.net_adult ?? "",
+      net_child: r.net_child ?? "",
+      sale_adult: r.sale_adult ?? "",
+      sale_child: r.sale_child ?? "",
+      sort_order: r.sort_order ?? 0,
+    })),
+  };
 }
 
 const MONTHS = { JAN:0, FEB:1, MAR:2, APR:3, MAY:4, JUN:5, JUL:6, AUG:7, SEP:8, OCT:9, NOV:10, DEC:11 };
